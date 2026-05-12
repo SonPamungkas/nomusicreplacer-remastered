@@ -1,6 +1,7 @@
 using System;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 
 
@@ -11,49 +12,112 @@ namespace NOMusicReplacer.Patch
     {
         [HarmonyPatch("PlayMusic")]
         [HarmonyPrefix]
-        static void SwapTheme(ref AudioClip audioClip, ref bool repeat)
+        static bool SwapTheme(ref AudioClip audioClip, ref bool repeat)
         {
             string song_title = audioClip.ToString();
             string clean_name = MusicReplacerBase.GetCleanName(song_title);
-            if (clean_name == "Ignition" || clean_name == "9. PALA" || clean_name == "2. BDF")
-            {
-                repeat = MusicReplacerBase.LoopSetting;
-            }
 
             AudioClip new_clip = GetNewSong(song_title);
 
-            
             if (new_clip != null)
             {
+                if (clean_name == "Ignition" && MusicReplacerBase.CurrentSong == "Ignition")
+                {
+                    MusicReplacerBase.mls.LogInfo("Ignition already playing (replacement), skipping restart.");
+                    return false;
+                }
+
                 audioClip = new_clip;
                 MusicReplacerBase.mls.LogInfo("Replaced: " + song_title + " with: " + new_clip.ToString());
+
+                MusicReplacerBase.CurrentSong = clean_name;
+
+                if (clean_name == "Ignition")
+                {
+                    // Only loop Ignition if we are in the main menu
+                    if (SceneManager.GetActiveScene().name == "MainMenu")
+                    {
+                        repeat = MusicReplacerBase.LoopSetting;
+                    }
+                    else
+                    {
+                        repeat = false;
+                    }
+                }
             }
-            else
-            {
-                MusicReplacerBase.mls.LogError(song_title + " resulted in a failed pull from an asset bundle");
-            }
+
+            return true;
         }
 
         [HarmonyPatch("CrossFadeMusic")]
         [HarmonyPrefix]
-        static void SwapCrossTheme(ref AudioClip audioClip, ref bool repeat)
+        static bool SwapCrossTheme(ref AudioClip audioClip, ref bool repeat)
         {
             string song_title = audioClip.ToString();
             string clean_name = MusicReplacerBase.GetCleanName(song_title);
-            if (clean_name == "Ignition" || clean_name == "9. PALA" || clean_name == "2. BDF")
-            {
-                repeat = MusicReplacerBase.LoopSetting;
-            }
 
             AudioClip new_clip = GetNewSong(song_title);
 
-
             if (new_clip != null)
             {
+                if (clean_name == "Ignition" && MusicReplacerBase.CurrentSong == "Ignition")
+                {
+                    MusicReplacerBase.mls.LogInfo("Ignition already playing in CrossFade (replacement), skipping.");
+                    return false;
+                }
+
                 audioClip = new_clip;
                 MusicReplacerBase.mls.LogInfo("Replaced: " + song_title + " with: " + new_clip.ToString());
+
+                MusicReplacerBase.CurrentSong = clean_name;
+
+                if (clean_name == "Ignition")
+                {
+                    // Only loop Ignition if we are in the main menu
+                    if (SceneManager.GetActiveScene().name == "MainMenu")
+                    {
+                        repeat = MusicReplacerBase.LoopSetting;
+                    }
+                    else
+                    {
+                        repeat = false;
+                    }
+                }
             }
 
+            return true;
+        }
+
+        [HarmonyPatch("StopMusic")]
+        [HarmonyPrefix]
+        static bool PreventStop()
+        {
+            if (MusicReplacerBase.CurrentSong == "Ignition")
+            {
+                // Only prevent stop if we have a valid replacement to keep playing
+                if (MusicReplacerBase.AudioDict.ContainsKey("Ignition") && MusicReplacerBase.AudioDict["Ignition"].Count > 0)
+                {
+                    MusicReplacerBase.mls.LogInfo("Preventing StopMusic during Ignition (replacement active).");
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        [HarmonyPatch("FadeOut")]
+        [HarmonyPrefix]
+        static bool PreventFadeOut()
+        {
+            if (MusicReplacerBase.CurrentSong == "Ignition")
+            {
+                // Only prevent fade out if we have a valid replacement to keep playing
+                if (MusicReplacerBase.AudioDict.ContainsKey("Ignition") && MusicReplacerBase.AudioDict["Ignition"].Count > 0)
+                {
+                    MusicReplacerBase.mls.LogInfo("Preventing FadeOut during Ignition (replacement active).");
+                    return false;
+                }
+            }
+            return true;
         }
 
         static AudioClip GetNewSong(string song_title) 
