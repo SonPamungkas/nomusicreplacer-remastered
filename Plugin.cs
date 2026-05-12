@@ -31,6 +31,7 @@ namespace NOMusicReplacer
         internal static System.Random rng = new System.Random();
         internal static bool LoopSetting = false;
         internal static string FolderPath;
+        internal static string CurrentSong;
         XmlDocument settings = new XmlDocument();
 
 
@@ -50,34 +51,32 @@ namespace NOMusicReplacer
             
             FolderPath = FolderPath.TrimEnd("NOMusicReplacer.dll".ToCharArray());
 
-            settings.Load(FolderPath + "settings.xml");
-            XmlNode node = settings.DocumentElement.SelectSingleNode("/Settings");
-
-            if (node != null) {
-                string sLoop = node.SelectSingleNode("LoopMusic").InnerText;
-                bool.TryParse(sLoop, out bool loop_result);
-                LoopSetting = loop_result;
-            }
-            else
+            string settingsPath = Path.Combine(FolderPath, "settings.xml");
+            if (File.Exists(settingsPath))
             {
-                mls.LogError("settings.xml corrupted");
+                try 
+                {
+                    settings.Load(settingsPath);
+                    XmlNode node = settings.DocumentElement.SelectSingleNode("/Settings");
+
+                    if (node != null) {
+                        string sLoop = node.SelectSingleNode("LoopMusic").InnerText;
+                        bool.TryParse(sLoop, out bool loop_result);
+                        LoopSetting = loop_result;
+                    }
+                    else
+                    {
+                        mls.LogError("settings.xml corrupted");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    mls.LogError("Failed to load settings.xml: " + ex.Message);
+                }
             }
 
             // Automatically scan and preload all folders in Audio
             PreloadAudio(FolderPath);
-            //for (int i = 0; i < PackNames.Count; i++)
-            //{
-            //    BundleDict.Add(PackNames[i], AssetBundle.LoadFromFile(FolderPath + PackNames[i]));
-            //    if (BundleDict[PackNames[i]] != null)
-            //    {
-            //        AudioDict.Add(PackNames[i], BundleDict[PackNames[i]].LoadAllAssets<AudioClip>().ToList());
-            //        mls.LogInfo(PackNames[i] + " asset bundle loaded");
-            //    }
-            //    else
-            //    {
-            //        mls.LogError("Failed to load bundle " + PackNames[i]);
-            //    }
-            //}
         }
 
         internal static AudioClip GetReplacement(string input)
@@ -111,7 +110,7 @@ namespace NOMusicReplacer
             }
             if (musicList.Count == 0)
             {
-                mls.LogInfo(packName + " music not found.");
+                mls.LogInfo(packName + " music not found or formats unsupported.");
                 BundleDict[packName] = false;
                 return;
             }
@@ -131,7 +130,7 @@ namespace NOMusicReplacer
         void PreloadAudio(string path)
         {
             mls.LogInfo("BASEPATH: " + path);
-            string AudioPath = path + "Audio" + Path.DirectorySeparatorChar;
+            string AudioPath = Path.Combine(path, "Audio");
 
             if (!Directory.Exists(AudioPath))
             {
@@ -157,30 +156,27 @@ namespace NOMusicReplacer
         AudioClip LoadSong(string path)
         {
             var musicType = GetAudioType(path);
-            if (musicType  == AudioType.UNKNOWN)
-            {
-                return null;
-            }
-            var loader = UnityWebRequestMultimedia.GetAudioClip(path,musicType);
-
+            var loader = UnityWebRequestMultimedia.GetAudioClip(path, musicType);
             loader.SendWebRequest();
 
-            while (true)
-            {
-                if (loader.isDone) break;
-            }
+            while (!loader.isDone) { }
 
-            if (loader.error != null) {
-                mls.LogError(loader.error);
+#pragma warning disable CS0618
+            if (loader.isNetworkError || loader.isHttpError) 
+            {
+                loader.Dispose();
                 return null;
             }
+#pragma warning restore CS0618
+
             var clip = DownloadHandlerAudioClip.GetContent(loader);
-            if(clip && clip.loadState == AudioDataLoadState.Loaded)
+            if (clip != null && clip.loadState == AudioDataLoadState.Loaded && clip.length > 0)
             {
-                clip.name = path.TrimStart(FolderPath.ToCharArray());
+                clip.name = Path.GetFileName(path);
                 return clip;
             }
-            mls.LogError($"Failed to load clip:{path}");
+
+            loader.Dispose();
             return null;
         }
 
@@ -194,6 +190,8 @@ namespace NOMusicReplacer
                 return AudioType.OGGVORBIS;
             if (extension == ".mp3")
                 return AudioType.MPEG;
+            if (extension == ".opus")
+                return AudioType.OGGVORBIS;
 
             mls.LogError($"Unsupported extension: {path}");
             return AudioType.UNKNOWN;
