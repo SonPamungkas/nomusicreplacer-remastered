@@ -102,6 +102,7 @@ namespace NOMusicReplacer
         internal static Dictionary<string, List<string>> AvailableFiles = new Dictionary<string, List<string>>();
         internal static Dictionary<string, string> ConversionDict = new Dictionary<string, string>();
         internal static Dictionary<string, ConfigEntry<int>> VolumeConfigs = new Dictionary<string, ConfigEntry<int>>();
+        internal static Dictionary<string, ConfigEntry<int>> WeightConfigs = new Dictionary<string, ConfigEntry<int>>();
         internal static Dictionary<int, string> ClipToPack = new Dictionary<int, string>();
         internal static List<MusicVolumeScaler> ActiveScalers = new List<MusicVolumeScaler>();
 
@@ -235,10 +236,13 @@ namespace NOMusicReplacer
             BundleDict[packName] = true;
             AvailableFiles[packName] = musicList;
             
-            if (!VolumeConfigs.ContainsKey(packName))
+                        if (!VolumeConfigs.ContainsKey(packName))
             {
                 var cfg = Config.Bind("Music Volumes", packName, 100, new ConfigDescription("Volume multiplier (%) for " + packName, new AcceptableValueRange<int>(0, 200)));
                 VolumeConfigs[packName] = cfg;
+
+                var wcfg = Config.Bind("Music Weights", packName, 50, new ConfigDescription("Priority weight for " + packName + " (1-100). Higher weights interrupt lower weights. Lower weights wait for higher weights to finish.", new AcceptableValueRange<int>(1, 100)));
+                WeightConfigs[packName] = wcfg;
 
                 cfg.SettingChanged += (s, e) =>
                 {
@@ -254,6 +258,21 @@ namespace NOMusicReplacer
             }
 
             mls.LogInfo(packName + " asset bundle indexed dynamically");
+        }
+
+                internal static int GetCurrentPlayingWeight()
+        {
+            if (string.IsNullOrEmpty(CurrentSong)) return 0;
+            if (!WeightConfigs.ContainsKey(CurrentSong)) return 0;
+            
+            foreach (var scaler in ActiveScalers)
+            {
+                if (scaler.packName == CurrentSong && scaler.source != null && scaler.source.isPlaying)
+                {
+                    return WeightConfigs[CurrentSong].Value;
+                }
+            }
+            return 0; // Not currently playing
         }
 
         public static string GetCleanName(string clipName)
@@ -337,6 +356,9 @@ namespace NOMusicReplacer
         }
     }
 }
+
+
+
 
 
 
